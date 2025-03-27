@@ -67,19 +67,33 @@ async def take_screenshot(page, url, output_path):
 async def create_presentation(screenshots):
     prs = Presentation()
     
-    for screenshot in screenshots:
+    # Добавляем один слайд
+    slide = prs.slides.add_slide(prs.slide_layouts[6])  # 6 - пустой макет
+    
+    # Размеры и позиции для сетки 2x2
+    positions = [
+        # Верхний ряд
+        {'left': Inches(0.5), 'top': Inches(0.5)},    # Левый верхний
+        {'left': Inches(5.5), 'top': Inches(0.5)},    # Правый верхний
+        # Нижний ряд
+        {'left': Inches(0.5), 'top': Inches(4.0)},    # Левый нижний
+        {'left': Inches(5.5), 'top': Inches(4.0)}     # Правый нижний
+    ]
+    
+    # Размеры каждого скриншота
+    width = Inches(4.5)   # Немного меньше половины слайда
+    height = Inches(3.0)  # Пропорциональная высота
+    
+    # Добавляем скриншоты на слайд
+    for screenshot, position in zip(screenshots, positions):
         if os.path.exists(screenshot):
-            slide = prs.slides.add_slide(prs.slide_layouts[6])
-            
-            # Calculate image size (4:3 aspect ratio)
-            img_width = Inches(6.0)
-            img_height = Inches(4.5)
-            
-            # Center the image on the slide
-            left = (prs.slide_width - img_width) / 2
-            top = (prs.slide_height - img_height) / 2
-            
-            slide.shapes.add_picture(screenshot, left, top, width=img_width, height=img_height)
+            slide.shapes.add_picture(
+                screenshot,
+                left=position['left'],
+                top=position['top'],
+                width=width,
+                height=height
+            )
     
     prs.save('weather_report.pptx')
     print("Presentation created successfully")
