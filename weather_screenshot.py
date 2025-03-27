@@ -67,22 +67,32 @@ async def take_screenshot(page, url, output_path):
 async def create_presentation(screenshots):
     prs = Presentation()
     
-    # Добавляем один слайд
+    # Создаем слайд
     slide = prs.slides.add_slide(prs.slide_layouts[6])  # 6 - пустой макет
     
-    # Размеры и позиции для сетки 2x2
+    # Размеры слайда в дюймах (стандартный размер 10x7.5)
+    slide_width = Inches(10)
+    slide_height = Inches(7.5)
+    
+    # Размеры для каждого скриншота (чуть меньше половины слайда)
+    width = Inches(4.8)  # Увеличили ширину
+    height = Inches(3.3)  # Увеличили высоту
+    
+    # Отступы
+    margin = Inches(0.2)  # Маленький отступ между скриншотами
+    
+    # Позиции для сетки 2x2 (автоматический расчет для центрирования)
+    left_x = (slide_width - (2 * width + margin)) / 2  # Центрируем по горизонтали
+    top_y = (slide_height - (2 * height + margin)) / 2  # Центрируем по вертикали
+    
     positions = [
         # Верхний ряд
-        {'left': Inches(0.5), 'top': Inches(0.5)},    # Левый верхний
-        {'left': Inches(5.5), 'top': Inches(0.5)},    # Правый верхний
+        {'left': left_x, 'top': top_y},  # Левый верхний
+        {'left': left_x + width + margin, 'top': top_y},  # Правый верхний
         # Нижний ряд
-        {'left': Inches(0.5), 'top': Inches(4.0)},    # Левый нижний
-        {'left': Inches(5.5), 'top': Inches(4.0)}     # Правый нижний
+        {'left': left_x, 'top': top_y + height + margin},  # Левый нижний
+        {'left': left_x + width + margin, 'top': top_y + height + margin}  # Правый нижний
     ]
-    
-    # Размеры каждого скриншота
-    width = Inches(4.5)   # Немного меньше половины слайда
-    height = Inches(3.0)  # Пропорциональная высота
     
     # Добавляем скриншоты на слайд
     for screenshot, position in zip(screenshots, positions):
