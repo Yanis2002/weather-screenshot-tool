@@ -1,0 +1,130 @@
+import os
+from pptx import Presentation
+from pptx.util import Inches # Можно использовать для указания размеров/позиций
+
+# Эта функция пытается скопировать одну фигуру (shape) с одного слайда на другой.
+# Внимание: Это упрощенная версия. Копирование сложных фигур,
+# форматирования, анимаций и т.д. может потребовать гораздо более
+# сложного кода или может быть не полностью поддержано библиотекой python-pptx.
+def copy_shape(shape, target_slide):
+    """Копирует фигуру с исходного слайда на целевой слайд."""
+    try:
+        # Создаем "заготовку" фигуры на новом слайде
+        # Используем element дерева XML для копирования
+        new_element = shape.element.__deepcopy__() # Глубокое копирование XML-элемента фигуры
+
+        # Добавляем скопированный элемент в коллекцию фигур целевого слайда
+        target_slide.shapes._spTree.insert_element_before(new_element, 'p:extLst')
+
+    except Exception as e:
+        print(f"   [Предупреждение] Не удалось скопировать фигуру типа {shape.shape_type}: {e}")
+        # Можно добавить более специфичную обработку для разных типов фигур,
+        # например, копирование текста для текстовых полей, изображения для картинок и т.д.
+        # Это базовый пример, который может не сработать для всех типов фигур.
+
+def merge_presentations(pptx_files, output_filename="merged_presentation.pptx"):
+    """
+    Объединяет несколько файлов PowerPoint (.pptx) в один.
+
+    Args:
+        pptx_files (list): Список путей к файлам .pptx, которые нужно объединить.
+        output_filename (str): Имя файла для результирующей презентации.
+    """
+    # Создаем новую пустую презентацию
+    merged_presentation = Presentation()
+    # Опционально: установите размер слайда как у первой презентации
+    # try:
+    #     first_prs = Presentation(pptx_files[0])
+    #     merged_presentation.slide_width = first_prs.slide_width
+    #     merged_presentation.slide_height = first_prs.slide_height
+    # except Exception as e:
+    #     print(f"Не удалось установить размер слайда из первого файла: {e}")
+
+
+    total_slides_copied = 0
+
+    # Проходим по каждому файлу из списка
+    for i, pptx_file in enumerate(pptx_files):
+        if not os.path.exists(pptx_file):
+            print(f"Файл не найден, пропускаем: {pptx_file}")
+            continue
+
+        print(f"Обработка файла {i+1}/{len(pptx_files)}: {os.path.basename(pptx_file)}")
+
+        try:
+            # Открываем текущую презентацию
+            source_presentation = Presentation(pptx_file)
+
+            # Проходим по каждому слайду в текущей презентации
+            for j, source_slide in enumerate(source_presentation.slides):
+                print(f"  Копирование слайда {j+1}/{len(source_presentation.slides)}...")
+
+                # Получаем макет (layout) исходного слайда
+                # Важно: Макет будет взят из *целевой* презентации по его имени или индексу.
+                # Если в целевой презентации нет точно такого же макета,
+                # может быть выбран похожий, что повлияет на форматирование.
+                # Здесь мы используем индекс макета из исходной презентации.
+                try:
+                   slide_layout = merged_presentation.slide_layouts[source_slide.slide_layout.slide_master.slide_layouts.index(source_slide.slide_layout)]
+                except ValueError:
+                   # Если макет не найден по индексу (мастер-слайды отличаются),
+                   # можно использовать стандартный макет (например, первый)
+                   print(f"   [Предупреждение] Макет '{source_slide.slide_layout.name}' не найден в целевой презентации. Используется стандартный макет.")
+                   slide_layout = merged_presentation.slide_layouts[0] # Индекс 0 обычно 'Title Slide' или 'Blank'
+
+                # Добавляем новый слайд в объединенную презентацию с тем же макетом
+                target_slide = merged_presentation.slides.add_slide(slide_layout)
+
+                # Копируем фон (если он установлен на уровне слайда, а не мастера)
+                if source_slide.has_background:
+                   try:
+                       target_slide.background.fill.solid() # Пример: сплошной фон
+                       # Копирование фона сложнее, т.к. нужно скопировать тип заливки (картинка, градиент и т.д.)
+                       # и её параметры. Это упрощенный вариант.
+                       # target_slide.background = source_slide.background # Прямое присваивание не работает
+                       # print("   [Информация] Фон слайда скопирован (базово).")
+                   except Exception as e:
+                       print(f"   [Предупреждение] Не удалось скопировать фон: {e}")
+
+
+                # Копируем все фигуры (текстовые поля, изображения, таблицы и т.д.)
+                # со старого слайда на новый
+                for shape in source_slide.shapes:
+                   copy_shape(shape, target_slide)
+
+                # Копируем заметки к слайду (если есть)
+                if source_slide.has_notes_slide:
+                    notes_tf = target_slide.notes_slide.notes_text_frame
+                    notes_tf.text = source_slide.notes_slide.notes_text_frame.text
+
+                total_slides_copied += 1
+
+        except Exception as e:
+            print(f"Ошибка при обработке файла {pptx_file}: {e}")
+
+    # Сохраняем объединенную презентацию
+    try:
+        merged_presentation.save(output_filename)
+        print(f"\nГотово! {total_slides_copied} слайдов скопировано в файл '{output_filename}'.")
+    except Exception as e:
+        print(f"Ошибка при сохранении файла {output_filename}: {e}")
+
+# --- Пример использования ---
+if __name__ == "__main__":
+    # 1. Установите библиотеку, если еще не установлена:
+    #    pip install python-pptx
+    #    (или pip3 install python-pptx)
+
+    # 2. Укажите пути к вашим файлам презентаций
+    input_presentations = [
+        "presentation1.pptx",
+        "/путь/к/другой/папке/presentation2.pptx",
+        "третья_презентация.pptx",
+        # Добавьте сюда столько файлов, сколько нужно
+    ]
+
+    # 3. Укажите имя для итогового файла
+    output_file = "итоговая_объединенная_презентация.pptx"
+
+    # 4. Запустите функцию объединения
+    merge_presentations(input_presentations, output_file)
