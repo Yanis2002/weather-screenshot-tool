@@ -1,107 +1,142 @@
 import os
+import copy # Импортируем модуль copy
 from pptx import Presentation
 from pptx.util import Inches, Pt
-from pptx.enum.shapes import MSO_SHAPE_TYPE # Для определения типа фигуры
-from io import BytesIO # Для работы с изображениями в памяти
+from pptx.enum.shapes import MSO_SHAPE_TYPE
+from io import BytesIO
 
-def merge_presentations_recreate(pptx_files, output_filename="merged_presentation_recreated.pptx"):
+# --- Функция копирования фигуры (метод с copy.deepcopy) ---
+def copy_shape(shape, target_slide):
+    """Копирует фигуру с исходного слайда на целевой слайд (используя copy.deepcopy)."""
+    try:
+        # Используем copy.deepcopy вместо __deepcopy__
+        new_element = copy.deepcopy(shape.element)
+
+        # Добавляем скопированный элемент в коллекцию фигур целевого слайда
+        # Добавляем перед первым расширением (extLst), если оно есть, иначе в конец.
+        # Это может помочь с порядком наложения фигур.
+        try:
+            ext_lst = target_slide.shapes._spTree.xpath('./p:extLst')[0]
+            target_slide.shapes._spTree.insert_element_before(new_element, ext_lst)
+        except IndexError: # Если extLst нет
+             target_slide.shapes._spTree.append(new_element)
+
+    except Exception as e:
+        # Выводим ошибку, если копирование не удалось
+        print(f"   [Предупреждение] Не удалось скопировать фигуру типа {getattr(shape, 'shape_type', 'UNKNOWN')} с помощью copy.deepcopy: {e}")
+        # Для диагностики можно раскомментировать следующую строку:
+        # import traceback; traceback.print_exc()
+
+# --- Основная функция объединения ---
+def merge_presentations(pptx_files, output_filename="merged_presentation.pptx"):
     """
-    Объединяет несколько файлов PowerPoint (.pptx) в один,
-    воссоздавая фигуры вместо прямого копирования элементов.
+    Объединяет несколько файлов PowerPoint (.pptx) в один.
+
+    Args:
+        pptx_files (list): Список путей к файлам .pptx, которые нужно объединить.
+        output_filename (str): Имя файла для результирующей презентации.
     """
+    # Создаем новую пустую презентацию
     merged_presentation = Presentation()
-    # ... (установка размера слайда, если нужно) ...
+    # Опционально: установить размер слайда как у первой презентации
+    try:
+        if pptx_files:
+            first_prs = Presentation(pptx_files[0])
+            merged_presentation.slide_width = first_prs.slide_width
+            merged_presentation.slide_height = first_prs.slide_height
+    except Exception as e:
+        print(f"[Предупреждение] Не удалось установить размер слайда из первого файла: {e}")
 
     total_slides_copied = 0
 
+    # Проходим по каждому файлу из списка
     for i, pptx_file in enumerate(pptx_files):
-        # ... (проверка файла, вывод в консоль) ...
-        try:
-            source_presentation = Presentation(pptx_file)
-            for j, source_slide in enumerate(source_presentation.slides):
-                print(f"  Обработка слайда {j+1}/{len(source_presentation.slides)}...")
-                try:
-                    slide_layout = merged_presentation.slide_layouts[source_slide.slide_layout.slide_master.slide_layouts.index(source_slide.slide_layout)]
-                except ValueError:
-                    print(f"   [Предупреждение] Макет '{source_slide.slide_layout.name}' не найден. Используется стандартный макет.")
-                    slide_layout = merged_presentation.slide_layouts[0]
+        if not os.path.exists(pptx_file):
+            print(f"Файл не найден, пропускаем: {pptx_file}")
+            continue
 
+        print(f"Обработка файла {i+1}/{len(pptx_files)}: {os.path.basename(pptx_file)}")
+
+        try:
+            # Открываем текущую презентацию
+            source_presentation = Presentation(pptx_file)
+
+            # Проходим по каждому слайду в текущей презентации
+            for j, source_slide in enumerate(source_presentation.slides):
+                print(f"  Копирование слайда {j+1}/{len(source_presentation.slides)}...")
+
+                # Получаем индекс макета исходного слайда
+                try:
+                   layout_index = source_slide.slide_layout.slide_master.slide_layouts.index(source_slide.slide_layout)
+                   # Пытаемся найти такой же макет в целевой презентации
+                   slide_layout = merged_presentation.slide_layouts[layout_index]
+                except (ValueError, IndexError):
+                   # Если макет не найден по индексу (мастер-слайды отличаются),
+                   # используем стандартный макет (например, пустой - индекс 6 часто бывает 'Blank')
+                   print(f"   [Предупреждение] Макет '{source_slide.slide_layout.name}' не найден в целевой презентации или индекс некорректен. Используется стандартный пустой макет (индекс 6).")
+                   try:
+                       slide_layout = merged_presentation.slide_layouts[6] # Попробуем пустой макет
+                   except IndexError:
+                       slide_layout = merged_presentation.slide_layouts[0] # Если и 6 нет, берем первый
+
+                # Добавляем новый слайд в объединенную презентацию с выбранным макетом
                 target_slide = merged_presentation.slides.add_slide(slide_layout)
 
-                # Копируем фон (все еще упрощенно)
-                # ... (код копирования фона) ...
+                # Копируем фон (очень упрощенно, может не работать для сложных фонов)
+                if source_slide.has_background:
+                   try:
+                       # Пытаемся скопировать fill напрямую (может вызвать ошибку)
+                       target_slide.background.fill.element = copy.deepcopy(source_slide.background.fill.element)
+                       # print("   [Информация] Фон слайда скопирован (попытка deepcopy).")
+                   except Exception as bg_e:
+                       # print(f"   [Предупреждение] Не удалось скопировать фон через deepcopy: {bg_e}. Попытка установить простой фон.")
+                       # В случае неудачи можно просто сделать фон белым или не трогать
+                       pass # Оставляем фон макета
 
-                # --- НАЧАЛО: Воссоздание фигур ---
+                # Копируем все фигуры со старого слайда на новый
                 for shape in source_slide.shapes:
+                   copy_shape(shape, target_slide)
+
+                # Копируем заметки к слайду (если есть)
+                if source_slide.has_notes_slide:
                     try:
-                        if shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX:
-                            # Копируем текстовое поле
-                            new_shape = target_slide.shapes.add_textbox(
-                                shape.left, shape.top, shape.width, shape.height
-                            )
-                            # Копируем текст и базовое форматирование (требует доработки для сложного форматирования)
-                            if shape.has_text_frame:
-                                new_shape.text_frame.text = shape.text_frame.text
-                                # TODO: Копировать форматирование параграфов и пробегов (жирный, курсив, размер, цвет...)
-                                # Это сложная задача, т.к. нужно итерировать по параграфам и пробегам
+                        notes_tf = target_slide.notes_slide.notes_text_frame
+                        notes_tf.text = source_slide.notes_slide.notes_text_frame.text
+                    except Exception as notes_e:
+                        print(f"   [Предупреждение] Не удалось скопировать заметки к слайду: {notes_e}")
 
-                        elif shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-                            # Копируем изображение
-                            try:
-                                # Получаем данные изображения
-                                image_blob = shape.image.blob
-                                image_stream = BytesIO(image_blob)
-                                # Добавляем изображение на новый слайд
-                                new_shape = target_slide.shapes.add_picture(
-                                    image_stream, shape.left, shape.top, shape.width, shape.height
-                                )
-                                # TODO: Копировать обрезку (crop), эффекты и т.д.
-                            except Exception as img_e:
-                                print(f"     [Предупреждение] Не удалось скопировать изображение: {img_e}")
 
-                        elif shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE:
-                             # Копируем автофигуру (базово)
-                             new_shape = target_slide.shapes.add_shape(
-                                 shape.auto_shape_type, shape.left, shape.top, shape.width, shape.height
-                             )
-                             # Копируем текст, если есть
-                             if shape.has_text_frame:
-                                 new_shape.text_frame.text = shape.text_frame.text
-                                 # TODO: Копировать форматирование текста
-                             # TODO: Копировать заливку, контур, эффекты
-
-                        # elif shape.shape_type == MSO_SHAPE_TYPE.TABLE:
-                            # TODO: Копирование таблиц (очень сложно, нужно копировать строки, ячейки, текст, форматирование)
-                            # print(f"     [Информация] Копирование таблиц пока не реализовано.")
-
-                        # elif shape.shape_type == MSO_SHAPE_TYPE.CHART:
-                            # TODO: Копирование диаграмм (очень сложно, требует работы с данными и форматом диаграммы)
-                            # print(f"     [Информация] Копирование диаграмм пока не реализовано.")
-
-                        else:
-                            print(f"     [Информация] Пропуск копирования неподдерживаемой фигуры типа: {shape.shape_type}")
-
-                    except Exception as shape_e:
-                        print(f"     [Ошибка] Не удалось воссоздать фигуру типа {shape.shape_type}: {shape_e}")
-                # --- КОНЕЦ: Воссоздание фигур ---
-
-                # Копируем заметки
-                # ... (код копирования заметок) ...
                 total_slides_copied += 1
-        except Exception as e:
-            print(f"Ошибка при обработке файла {pptx_file}: {e}")
 
+        except Exception as e:
+            print(f"\n!!! Ошибка при обработке файла {pptx_file}: {e}\n")
+            # Для детальной диагностики можно раскомментировать:
+            # import traceback; traceback.print_exc()
+
+    # Сохраняем объединенную презентацию
     try:
         merged_presentation.save(output_filename)
-        print(f"\nГотово! {total_slides_copied} слайдов обработано в файл '{output_filename}'.")
+        print(f"\nГотово! {total_slides_copied} слайдов скопировано в файл '{output_filename}'.")
+        print("!!! Внимание: Проверьте итоговый файл на корректность отображения всех элементов.")
     except Exception as e:
-        print(f"Ошибка при сохранении файла {output_filename}: {e}")
+        print(f"!!! Ошибка при сохранении файла {output_filename}: {e}")
 
-# --- Пример использования ---
+# --- Запуск объединения ---
 if __name__ == "__main__":
+    # 1. Убедитесь, что библиотека установлена:
+    #    pip install python-pptx
+    #    (или pip3 install python-pptx)
+
+    # 2. Поместите этот скрипт в ту же папку, где лежат ваши файлы PPTX,
+    #    ИЛИ укажите полные пути к файлам.
     input_presentations = [
-        "presentation1.pptx",
-        "presentation2.pptx",
+        "дт акты.pptx",
+        "Свод МЭБ 28.03..pptx",
+        "ДП и СП 28.03.2025 под акт.pptx",
     ]
-    output_file = "итоговая_объединенная_презентация_recreated.pptx"
-    merge_presentations_recreate(input_presentations, output_file)
+
+    # 3. Укажите имя для итогового файла
+    output_file = "Объединенная_презентация_ИТОГ.pptx"
+
+    # 4. Запустите функцию объединения
+    merge_presentations(input_presentations, output_file)
