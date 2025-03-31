@@ -1,0 +1,107 @@
+import os
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.enum.shapes import MSO_SHAPE_TYPE # Для определения типа фигуры
+from io import BytesIO # Для работы с изображениями в памяти
+
+def merge_presentations_recreate(pptx_files, output_filename="merged_presentation_recreated.pptx"):
+    """
+    Объединяет несколько файлов PowerPoint (.pptx) в один,
+    воссоздавая фигуры вместо прямого копирования элементов.
+    """
+    merged_presentation = Presentation()
+    # ... (установка размера слайда, если нужно) ...
+
+    total_slides_copied = 0
+
+    for i, pptx_file in enumerate(pptx_files):
+        # ... (проверка файла, вывод в консоль) ...
+        try:
+            source_presentation = Presentation(pptx_file)
+            for j, source_slide in enumerate(source_presentation.slides):
+                print(f"  Обработка слайда {j+1}/{len(source_presentation.slides)}...")
+                try:
+                    slide_layout = merged_presentation.slide_layouts[source_slide.slide_layout.slide_master.slide_layouts.index(source_slide.slide_layout)]
+                except ValueError:
+                    print(f"   [Предупреждение] Макет '{source_slide.slide_layout.name}' не найден. Используется стандартный макет.")
+                    slide_layout = merged_presentation.slide_layouts[0]
+
+                target_slide = merged_presentation.slides.add_slide(slide_layout)
+
+                # Копируем фон (все еще упрощенно)
+                # ... (код копирования фона) ...
+
+                # --- НАЧАЛО: Воссоздание фигур ---
+                for shape in source_slide.shapes:
+                    try:
+                        if shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX:
+                            # Копируем текстовое поле
+                            new_shape = target_slide.shapes.add_textbox(
+                                shape.left, shape.top, shape.width, shape.height
+                            )
+                            # Копируем текст и базовое форматирование (требует доработки для сложного форматирования)
+                            if shape.has_text_frame:
+                                new_shape.text_frame.text = shape.text_frame.text
+                                # TODO: Копировать форматирование параграфов и пробегов (жирный, курсив, размер, цвет...)
+                                # Это сложная задача, т.к. нужно итерировать по параграфам и пробегам
+
+                        elif shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                            # Копируем изображение
+                            try:
+                                # Получаем данные изображения
+                                image_blob = shape.image.blob
+                                image_stream = BytesIO(image_blob)
+                                # Добавляем изображение на новый слайд
+                                new_shape = target_slide.shapes.add_picture(
+                                    image_stream, shape.left, shape.top, shape.width, shape.height
+                                )
+                                # TODO: Копировать обрезку (crop), эффекты и т.д.
+                            except Exception as img_e:
+                                print(f"     [Предупреждение] Не удалось скопировать изображение: {img_e}")
+
+                        elif shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE:
+                             # Копируем автофигуру (базово)
+                             new_shape = target_slide.shapes.add_shape(
+                                 shape.auto_shape_type, shape.left, shape.top, shape.width, shape.height
+                             )
+                             # Копируем текст, если есть
+                             if shape.has_text_frame:
+                                 new_shape.text_frame.text = shape.text_frame.text
+                                 # TODO: Копировать форматирование текста
+                             # TODO: Копировать заливку, контур, эффекты
+
+                        # elif shape.shape_type == MSO_SHAPE_TYPE.TABLE:
+                            # TODO: Копирование таблиц (очень сложно, нужно копировать строки, ячейки, текст, форматирование)
+                            # print(f"     [Информация] Копирование таблиц пока не реализовано.")
+
+                        # elif shape.shape_type == MSO_SHAPE_TYPE.CHART:
+                            # TODO: Копирование диаграмм (очень сложно, требует работы с данными и форматом диаграммы)
+                            # print(f"     [Информация] Копирование диаграмм пока не реализовано.")
+
+                        else:
+                            print(f"     [Информация] Пропуск копирования неподдерживаемой фигуры типа: {shape.shape_type}")
+
+                    except Exception as shape_e:
+                        print(f"     [Ошибка] Не удалось воссоздать фигуру типа {shape.shape_type}: {shape_e}")
+                # --- КОНЕЦ: Воссоздание фигур ---
+
+                # Копируем заметки
+                # ... (код копирования заметок) ...
+                total_slides_copied += 1
+        except Exception as e:
+            print(f"Ошибка при обработке файла {pptx_file}: {e}")
+
+    try:
+        merged_presentation.save(output_filename)
+        print(f"\nГотово! {total_slides_copied} слайдов обработано в файл '{output_filename}'.")
+    except Exception as e:
+        print(f"Ошибка при сохранении файла {output_filename}: {e}")
+
+# --- Пример использования ---
+if __name__ == "__main__":
+    input_presentations = [
+        "presentation1.pptx",
+        "presentation2.pptx",
+    ]
+    output_file = "итоговая_объединенная_презентация_recreated.pptx"
+    merge_presentations_recreate(input_presentations, output_file)
